@@ -3209,10 +3209,30 @@ spcnodeVisit(node, res, cap)
     cap = cap  / 1000;
     if (cap > EFCapThreshold)
     {
-	fprintf(esSpiceF, esSpiceCapFormat, esCapNum++, nsn, cap,
-			(isConnected) ?  "\n" :
-			(esFormat == NGSPICE) ? " $ **FLOATING\n" :
-			" **FLOATING\n");
+        char *substr = NULL;
+
+	/* Visit nodes to find the substrate node                       */
+	/* Might this be more efficient if we only did this only once?  */
+	/* ...and stored the substrate node in a global variable,       */
+	/* spcsubVisit is called earlier and this could be done         */
+	/* there, but I didn't want to introduce a global variable      */
+	/* given that the topic is a religious one                      */
+        EFVisitNodes(spcsubVisit, (ClientData)&substr);
+
+	/* Is this node name the same as the substrate node name?       */
+	/* If so, this is a shorted cap, and can be safely discarded    */
+	/* from the SPICE netlist. Maybe we should emit a warning?      */
+	/* ...or maybe this whole operation should be an option         */
+	/* Not testing with other SPICE formats, only Ngspice format    */
+        if(strcmp(nsn, substr) != 0)
+	   fprintf(esSpiceF, esSpiceCapFormat, esCapNum++, nsn, cap,
+	   		(isConnected) ?  "\n" :
+	   		(esFormat == NGSPICE) ? " $ **FLOATING\n" :
+	   		" **FLOATING\n");
+
+        if(substr != NULL)
+           freeMagic(substr);
+
     }
     if (node->efnode_attrs && !esNoAttrs)
     {
