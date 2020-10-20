@@ -1,0 +1,19 @@
+#!/bin/bash
+export prefix=/usr/local
+# export CFLAGS="${CFLAGS} -Wno-return-type"
+set -e
+set -x
+
+#            --with-tcl=${prefix}/lib \
+#             --with-tk=${prefix}/lib \
+
+./configure
+
+# --prefix=${prefix} \
+# --x-includes=${prefix}/include \
+# --x-libraries=${prefix}/lib
+
+make
+make -C scmos
+sudo make install
+exit 0
