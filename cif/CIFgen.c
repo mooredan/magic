@@ -2004,6 +2004,7 @@ cifGatherFunc(tile, atotal, mode)
 	if ((*atotal != INFINITY) && (*atotal < growDistance))
 	    locarea = (dlong)(area.r_xtop - area.r_xbot)
 			* (dlong)(area.r_ytop - area.r_ybot);
+	    if (IsSplit(tile)) locarea /= 2;
 	    if (locarea > (dlong)INFINITY)
 		*atotal = INFINITY;
 	    else
@@ -2011,7 +2012,22 @@ cifGatherFunc(tile, atotal, mode)
     }
     else if (mode == CLOSE_FILL)
     {
-	DBPaintPlane(cifPlane, &area, CIFPaintTable, (PaintUndoInfo *)NULL);
+	TileType dinfo = TiGetTypeExact(tile);
+
+	/* The recursive call to cifGatherFunc() below means that the	*/
+	/* tile type cannot be depended on to have the TT_SIDE bit set	*/
+	/* for the side of the tile that is TT_SPACE.  So set the	*/
+	/* side bit manually.						*/
+
+	if (IsSplit(tile))
+	{
+	    if (TiGetLeftType(tile) == TT_SPACE)
+		dinfo &= ~TT_SIDE;
+	    else
+		dinfo |= TT_SIDE;
+	}
+
+	DBNMPaintPlane(cifPlane, dinfo, &area, CIFPaintTable, (PaintUndoInfo *)NULL);
 	CIFTileOps++;
     }
 
@@ -2024,25 +2040,25 @@ cifGatherFunc(tile, atotal, mode)
     /* Check top */
     if (area.r_ytop != TiPlaneRect.r_ytop)
         for (tp = RT(tile); RIGHT(tp) > LEFT(tile); tp = BL(tp))
-	    if (tp->ti_client == cdata && TiGetType(tp) == TT_SPACE)
+	    if (tp->ti_client == cdata && TiGetBottomType(tp) == TT_SPACE)
 		cifGatherFunc(tp, atotal, mode);
 
     /* Check bottom */
     if (area.r_ybot != TiPlaneRect.r_ybot)
         for (tp = LB(tile); LEFT(tp) < RIGHT(tile); tp = TR(tp))
-	    if (tp->ti_client == cdata && TiGetType(tp) == TT_SPACE)
+	    if (tp->ti_client == cdata && TiGetTopType(tp) == TT_SPACE)
 		cifGatherFunc(tp, atotal, mode);
 
     /* Check left */
     if (area.r_xbot != TiPlaneRect.r_xbot)
 	for (tp = BL(tile); BOTTOM(tp) < TOP(tile); tp = RT(tp))
-	    if (tp->ti_client == cdata && TiGetType(tp) == TT_SPACE)
+	    if (tp->ti_client == cdata && TiGetRightType(tp) == TT_SPACE)
 		cifGatherFunc(tp, atotal, mode);
 
     /* Check right */
     if (area.r_xtop != TiPlaneRect.r_xtop)
 	for (tp = TR(tile); TOP(tp) > BOTTOM(tile); tp = LB(tp))
-	    if (tp->ti_client == cdata && TiGetType(tp) == TT_SPACE)
+	    if (tp->ti_client == cdata && TiGetLeftType(tp) == TT_SPACE)
 		cifGatherFunc(tp, atotal, mode);
 
     return 0;
