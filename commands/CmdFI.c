@@ -913,10 +913,12 @@ dbListLabels(scx, label, tpath, cdarg)
  * Implement the "flush" command.
  * Throw away all changes made within magic to the specified cell,
  * and re-read it from disk.  If no cell is specified, the default
- * is the current edit cell.
+ * is the current edit cell.  If "-dereference" is specified as an
+ * option, then re-read the cell from the search path instead of
+ * the file path that has been associated with the cell.
  *
  * Usage:
- *	flush [cellname]
+ *	flush [cellname] [-dereference]
  *
  * Results:
  *	None.
@@ -937,10 +939,17 @@ CmdFlush(w, cmd)
     int action;
     static char *actionNames[] = { "no", "yes", 0 };
     char *prompt;
+    bool dereference = FALSE;
+
+    if (!strncmp(cmd->tx_argv[cmd->tx_argc - 1], "-deref", 6))
+    {
+	dereference = TRUE;
+	cmd->tx_argc--;
+    }
 
     if (cmd->tx_argc > 2)
     {
-	TxError("Usage: flush [cellname]\n");
+	TxError("Usage: flush [cellname] [dereference]\n");
 	return;
     }
 
@@ -970,7 +979,7 @@ CmdFlush(w, cmd)
 	    return;
     }
 
-    cmdFlushCell(def);
+    cmdFlushCell(def, dereference);
     SelectClear();
     TxPrintf("[Flushed]\n");
 }
@@ -1920,7 +1929,7 @@ CmdFlatten(w, cmd)
     TxCommand *cmd;
 {
      int		rval, xMask;
-     bool		dolabels, toplabels, invert;
+     bool		dolabels, dobox, toplabels, invert;
      char		*destname;
      CellDef		*newdef;
      CellUse		*newuse;
@@ -1931,6 +1940,7 @@ CmdFlatten(w, cmd)
     xMask = CU_DESCEND_ALL;
     dolabels = TRUE;
     toplabels = FALSE;
+    dobox = FALSE;
 
     rval = 0;
     if (cmd->tx_argc > 2)
@@ -1956,6 +1966,9 @@ CmdFlatten(w, cmd)
 	    {
 		switch(cmd->tx_argv[i][3])
 		{
+		    case 'b':
+			dobox = (invert) ? FALSE : TRUE;
+			break;
 		    case 'l':
 			dolabels = (invert) ? FALSE : TRUE;
 			break;
@@ -1970,7 +1983,7 @@ CmdFlatten(w, cmd)
 			break;
 		    default:
 			TxError("options are: -nolabels, -nosubcircuits "
-				"-novendor, -dotoplabels\n");
+				"-novendor, -dotoplabels, -dobox\n");
 			break;
 		}
 	    }
@@ -1997,7 +2010,6 @@ CmdFlatten(w, cmd)
     (void) StrDup(&(newuse->cu_id), "Flattened cell");
     DBSetTrans(newuse, &GeoIdentityTransform);
     newuse->cu_expandMask = CU_DESCEND_SPECIAL;
-    UndoDisable();
     flatDestUse = newuse;
 
     if (EditCellUse)
@@ -2005,8 +2017,27 @@ CmdFlatten(w, cmd)
     else
 	scx.scx_use = (CellUse *)w->w_surfaceID;
 
-    scx.scx_area = scx.scx_use->cu_def->cd_bbox;
+    if (dobox)
+    {
+	CellDef *boxDef;
+
+    	if (!ToolGetBox(&boxDef, &scx.scx_area))
+	{
+	    TxError("Put the box in a window first.\n");
+	    return;
+	}
+	else if (boxDef != scx.scx_use->cu_def)
+	{
+	    TxError("The box is not in the edit cell!\n");
+	    return;
+	}
+    }
+    else
+	scx.scx_area = scx.scx_use->cu_def->cd_bbox;
+
     scx.scx_trans = GeoIdentityTransform;
+
+    UndoDisable();
 
     DBCellCopyAllPaint(&scx, &DBAllButSpaceAndDRCBits, xMask, flatDestUse);
     if (dolabels)
@@ -2024,5 +2055,3 @@ CmdFlatten(w, cmd)
 
     UndoEnable();
 }
-
-
