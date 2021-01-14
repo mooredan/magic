@@ -68,7 +68,7 @@ char *extDevTable[] = {"fet", "mosfet", "asymmetric", "bjt", "devres",
      * indexed by sheet resistivity class.
      */
 int extResistPerim[NT];
-unsigned int extResistArea[NT];
+dlong extResistArea[NT];
 
     /*
      * The following structure is used in extracting transistors.
@@ -577,7 +577,7 @@ extSetResist(reg)
     NodeRegion *reg;
 {
     int n, perim;
-    unsigned int area;
+    dlong area;
     float s, fperim, v;
 
     for (n = 0; n < ExtCurStyle->exts_numResistClasses; n++)
@@ -706,7 +706,7 @@ extOutputNodes(nodeList, outFile)
 
 	/* Output its area and perimeter for each resistivity class */
 	for (n = 0; n < ExtCurStyle->exts_numResistClasses; n++)
-	    fprintf(outFile, " %u %d", reg->nreg_pa[n].pa_area,
+	    fprintf(outFile, " %"DLONG_PREFIX"d %d", reg->nreg_pa[n].pa_area,
 				reg->nreg_pa[n].pa_perim);
 	(void) putc('\n', outFile);
 
@@ -738,6 +738,139 @@ extOutputNodes(nodeList, outFile)
 		break;
 	    }
     }
+}
+
+/*
+ * ---------------------------------------------------------------------
+ *
+ * extSubsName --
+ *
+ *	Return the name of the substrate node, if the node belongs to
+ *	the substrate region and a global substrate node name has been
+ *	specified by the tech file.  If the substrate node name is a
+ *	Tcl variable name, then perform the variable substitution.
+ *
+ * Results:
+ *	Pointer to a character string.
+ *
+ * Side Effects:
+ *	None.
+ *
+ * ---------------------------------------------------------------------
+ */
+ 
+char *
+extSubsName(node)
+    LabRegion *node;
+{
+    char *subsName;
+
+    /* If the techfile specifies a global name for the substrate, use	*/
+    /* that in preference to the default "p_x_y#" name.	 Use this name	*/
+    /* only to substitute for nodes with tiles at -(infinity).		*/
+
+    if (ExtCurStyle->exts_globSubstrateName != NULL)
+    {
+	if (node->lreg_ll.p_x <= (MINFINITY + 3))
+	{
+	    if (ExtCurStyle->exts_globSubstrateName[0] == '$' &&
+		 ExtCurStyle->exts_globSubstrateName[1] != '$')
+	    {
+		// If subsName is a Tcl variable (begins with "$"), make the
+		// variable substitution, if one exists.  Ignore double-$.
+		// If the variable is undefined in the interpreter, then
+		// strip the "$" from the front as this is not legal in most
+		// netlist formats.
+
+		char *varsub = (char *)Tcl_GetVar(magicinterp,
+			&ExtCurStyle->exts_globSubstrateName[1],
+			TCL_GLOBAL_ONLY);
+		return (varsub != NULL) ? varsub : ExtCurStyle->exts_globSubstrateName
+			+ 1;
+	    }
+	    else
+		return ExtCurStyle->exts_globSubstrateName;
+	}
+	else return NULL;
+    }
+    return NULL;
+}
+
+/*
+ * ----------------------------------------------------------------------------
+ *
+ * extMakeNodeNumPrint --
+ *
+ *	Construct a node name from the plane number "plane" and lower left Point
+ *	"coord", and place it in the string "buf" (which must be large enough).
+ *
+ * Results:
+ *	None.
+ *
+ * Side Effects:
+ *	Fills in string "buf".
+ *
+ * ----------------------------------------------------------------------------
+ */
+
+void
+extMakeNodeNumPrint(buf, lreg)
+    char *buf;
+    LabRegion *lreg;
+{
+    int plane = lreg->lreg_pnum;
+    Point *p = &lreg->lreg_ll;
+    char *subsName;
+
+    subsName = extSubsName(lreg);
+    if (subsName != NULL)
+	strcpy(buf, subsName);
+    else
+    	sprintf(buf, "%s_%s%d_%s%d#",
+		DBPlaneShortName(plane),
+		(p->p_x < 0) ? "n": "", abs(p->p_x),
+		(p->p_y < 0) ? "n": "", abs(p->p_y));
+}
+
+/*
+ * ----------------------------------------------------------------------------
+ *
+ * extNodeName --
+ *
+ * Given a pointer to a LabRegion, return a pointer to a string
+ * that can be printed as the name of the node.  If the LabRegion
+ * has a list of attached labels, use one of the labels; otherwise,
+ * use its node number.
+ *
+ * Results:
+ *	Returns a pointer to a string.  If the node had a label, this
+ *	is a pointer to the lab_text field of the first label on the
+ *	label list for the node; otherwise, it is a pointer to a static
+ *	buffer into which we have printed the node number.
+ *
+ * Side effects:
+ *	May overwrite the static buffer used to hold the printable
+ *	version of a node number.
+ *
+ * ----------------------------------------------------------------------------
+ */
+
+char *
+extNodeName(node)
+    LabRegion *node;
+{
+    static char namebuf[256];	/* Big enough to hold a generated nodename */
+    LabelList *ll;
+
+    if (node == (LabRegion *) NULL || SigInterruptPending)
+	return ("(none)");
+
+    for (ll = node->lreg_labels; ll; ll = ll->ll_next)
+	if (extLabType(ll->ll_label->lab_text, LABTYPE_NAME))
+	    return (ll->ll_label->lab_text);
+
+    extMakeNodeNumPrint(namebuf, node);
+    return (namebuf);
 }
 
 /*
@@ -807,8 +940,7 @@ extFindDuplicateLabels(def, nreg)
 			    {
 				r.r_ll = r.r_ur = ll2->ll_label->lab_rect.r_ll;
 				r.r_xbot--, r.r_ybot--, r.r_xtop++, r.r_ytop++;
-				extMakeNodeNumPrint(name,
-					    np2->nreg_pnum, np2->nreg_ll);
+				extMakeNodeNumPrint(name, np2);
 				(void) sprintf(message, badmesg, text, name);
 				DBWFeedbackAdd(&r, message, def,
 					    1, STYLE_PALEHIGHLIGHTS);
@@ -825,69 +957,6 @@ extFindDuplicateLabels(def, nreg)
 
     if (hashInitialized)
 	HashKill(&labelHash);
-}
-
-/*
- * ----------------------------------------------------------------------------
- *
- * extNodeName --
- *
- * Given a pointer to a LabRegion, return a pointer to a string
- * that can be printed as the name of the node.  If the LabRegion
- * has a list of attached labels, use one of the labels; otherwise,
- * use its node number.
- *
- * Results:
- *	Returns a pointer to a string.  If the node had a label, this
- *	is a pointer to the lab_text field of the first label on the
- *	label list for the node; otherwise, it is a pointer to a static
- *	buffer into which we have printed the node number.
- *
- * Side effects:
- *	May overwrite the static buffer used to hold the printable
- *	version of a node number.
- *
- * ----------------------------------------------------------------------------
- */
-
-char *
-extNodeName(node)
-    LabRegion *node;
-{
-    static char namebuf[256];	/* Big enough to hold a generated nodename */
-    LabelList *ll;
-
-    if (node == (LabRegion *) NULL || SigInterruptPending)
-	return ("(none)");
-
-    for (ll = node->lreg_labels; ll; ll = ll->ll_next)
-	if (extLabType(ll->ll_label->lab_text, LABTYPE_NAME))
-	    return (ll->ll_label->lab_text);
-
-    /* If the techfile specifies a global name for the substrate, use	*/
-    /* that in preference to the default "p_x_y#" name.			*/
-
-    if (((NodeRegion *)node == glob_subsnode) || ((NodeRegion *)node == temp_subsnode))
-    {    
-	if (ExtCurStyle->exts_globSubstrateName != NULL)
-	{
-	    if (ExtCurStyle->exts_globSubstrateName[0] == '$' &&
-		 ExtCurStyle->exts_globSubstrateName[1] != '$')
-	    {
-		// If subsName is a Tcl variable (begins with "$"), make the
-		// variable substitution, if one exists.  Ignore double-$.
-
-		char *varsub = (char *)Tcl_GetVar(magicinterp,
-			&ExtCurStyle->exts_globSubstrateName[1],
-			TCL_GLOBAL_ONLY);
-		return (varsub != NULL) ? varsub : ExtCurStyle->exts_globSubstrateName;
-	    }
-	    else
-		return ExtCurStyle->exts_globSubstrateName;
-	}
-    }
-    extMakeNodeNumPrint(namebuf, node->lreg_pnum, node->lreg_ll);
-    return (namebuf);
 }
 
 /*
@@ -3771,7 +3840,7 @@ extNodeAreaFunc(tile, arg)
     FindRegion *arg;
 {
     int tilePlaneNum, pNum, len, resistClass, n, nclasses;
-    unsigned int area;
+    dlong area;
     PlaneMask pMask;
     CapValue capval;
     TileTypeBitMask *mask, *resMask;
@@ -3867,9 +3936,9 @@ extNodeAreaFunc(tile, arg)
 	{
 	    TITORECT(tile, &r);
 	    GEOCLIP(&r, extNodeClipArea);
-	    area = (r.r_xtop - r.r_xbot) * (r.r_ytop - r.r_ybot);
+	    area = (dlong)(r.r_xtop - r.r_xbot) * (dlong)(r.r_ytop - r.r_ybot);
 	}
-	else area = TILEAREA(tile);
+	else area = (dlong)TILEAREA(tile);
 
 	if (IsSplit(tile)) area /= 2;	/* Split tiles are 1/2 area! */
 

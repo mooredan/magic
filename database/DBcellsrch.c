@@ -768,6 +768,9 @@ cleanup:
  * remaining elements of the current array are skipped, but the
  * search is not aborted.
  *
+ * NOTE:  Unlike DBTreeSrTiles and DBTreeSrLabels, the function is not
+ * applied to the top level cell, only to descendents.
+ *
  * Each element of an array is returned separately.
  *
  * Results:
@@ -848,9 +851,8 @@ dbTreeCellSrFunc(scx, fp)
 
     if ((fp->tf_xmask == CU_DESCEND_NO_LOCK) && (use->cu_flags & CU_LOCKED))
 	return 2;
-    else if ((!DBDescendSubcell(use, fp->tf_xmask)) ||
-		(fp->tf_xmask == CU_DESCEND_ALL))
-	result = (*fp->tf_func)(scx, fp->tf_arg);
+    else if (!DBDescendSubcell(use, fp->tf_xmask))
+	return (*fp->tf_func)(scx, fp->tf_arg);
     else
     {
 	if ((use->cu_def->cd_flags & CDAVAILABLE) == 0)
@@ -859,9 +861,15 @@ dbTreeCellSrFunc(scx, fp)
 	    if (!DBCellRead(use->cu_def, (char *) NULL, TRUE, dereference, NULL))
 		return 0;
 	}
-	result = DBCellSrArea(scx, dbTreeCellSrFunc, (ClientData) fp);
     }
-    return result;
+    if (fp->tf_xmask == CU_DESCEND_ALL)
+    {
+	result = (*fp->tf_func)(scx, fp->tf_arg);
+	if (result != 0) return result;
+    }
+
+    /* Run recursively on children in search area */
+    return DBCellSrArea(scx, dbTreeCellSrFunc, (ClientData) fp);
 }
 
 /*
@@ -1802,10 +1810,10 @@ int dbScaleProp(name, value, cps)
     CellPropStruct *cps;
 {
     int scalen, scaled;
-    char *newvalue;
+    char *newvalue, *vptr;
     Rect r;
 
-    if (!strcmp(name, "FIXED_BBOX") || !strncmp(name, "MASKHINTS_", 10))
+    if (!strcmp(name, "FIXED_BBOX"))
     {
 	if (sscanf(value, "%d %d %d %d", &r.r_xbot, &r.r_ybot,
 			&r.r_xtop, &r.r_ytop) == 4)
@@ -1824,6 +1832,55 @@ int dbScaleProp(name, value, cps)
 			r.r_xtop, r.r_ytop);
 	    DBPropPut(cps->cps_def, name, newvalue);
 	}
+    }
+    else if (!strncmp(name, "MASKHINTS_", 10))
+    {
+	char *vptr, *lastval;
+	int lastlen;
+
+	newvalue = (char *)NULL;
+	vptr = value;
+	while (*vptr != '\0')
+	{
+	    if (sscanf(vptr, "%d %d %d %d", &r.r_xbot, &r.r_ybot,
+			&r.r_xtop, &r.r_ytop) == 4)
+	    {
+	    	/* Scale numerator held in point X value, */
+	    	/* scale denominator held in point Y value */
+
+	    	scalen = cps->cps_point.p_x;
+	    	scaled = cps->cps_point.p_y;
+
+	    	DBScalePoint(&r.r_ll, scalen, scaled);
+	    	DBScalePoint(&r.r_ur, scalen, scaled);
+
+		lastval = newvalue;
+		lastlen = (lastval) ? strlen(lastval) : 0;
+		newvalue = mallocMagic(40 + lastlen);
+
+		if (lastval)
+		    strcpy(newvalue, lastval);
+		else
+		    *newvalue = '\0';
+
+		sprintf(newvalue + lastlen, "%s%d %d %d %d", (lastval) ? " " : "",
+			r.r_xbot, r.r_ybot, r.r_xtop, r.r_ytop);
+		if (lastval) freeMagic(lastval);
+
+		/* Parse through the four values and check if there's more */
+                while (*vptr && !isspace(*vptr)) vptr++;
+                while (*vptr && isspace(*vptr)) vptr++;
+                while (*vptr && !isspace(*vptr)) vptr++;
+                while (*vptr && isspace(*vptr)) vptr++;
+                while (*vptr && !isspace(*vptr)) vptr++;
+                while (*vptr && isspace(*vptr)) vptr++;
+                while (*vptr && !isspace(*vptr)) vptr++;
+                while (*vptr && isspace(*vptr)) vptr++;
+	    }
+	    else break;
+	}
+	if (newvalue)
+	    DBPropPut(cps->cps_def, name, newvalue);
     }
     return 0;	/* Keep enumerating through properties */
 }

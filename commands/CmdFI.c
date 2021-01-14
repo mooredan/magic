@@ -1618,8 +1618,8 @@ CmdFindNetProc(nodename, use, rect, warn_not_found)
     /* go to that point (transformed to the top level of the design  */
     /* hierarchy).						     */
 
-    /* see extract/extractInt.h for the format of the node, found in */
-    /* extMakeNodeNumPrint(), which is a macro, not a subroutine.    */
+    /* see extract/extBasic.c for the format of the node, found */
+    /* in extMakeNodeNumPrint().				*/
 
     locvalid = FALSE;
     if ((xstr = strchr(s, '_')) != NULL)
@@ -1868,6 +1868,9 @@ flatCopyAllLabels(scx, lab, tpath, targetUse)
     CellDef *def;
     char	labelname[1024];
     char *n, *f, c;
+
+    /* Ignore null labels */
+    if (*lab->lab_text == '\0') return 0;
 
     def = targetUse->cu_def;
     if (!GEO_LABEL_IN_AREA(&lab->lab_rect, &(scx->scx_area))) return 0;

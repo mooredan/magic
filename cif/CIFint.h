@@ -320,7 +320,9 @@ extern void CIFClearPlanes();
 extern Plane *CIFGenLayer();
 extern void CIFInitCells();
 extern int cifHierCopyFunc();
+extern int cifHierCopyMaskHints();
 extern void CIFLoadStyle();
+extern void CIFCopyMaskHints();
 
 /* Shared variables and structures: */
 
