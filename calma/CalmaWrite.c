@@ -53,12 +53,13 @@ static char rcsid[] __attribute__ ((unused)) ="$Header: /usr/cvsroot/magic-8.0/c
 #include "utils/stack.h"
 
     /* Exports */
-bool CalmaDoLibrary = FALSE;	 /* If TRUE, do not output the top level */
-bool CalmaDoLabels = TRUE;	 /* If FALSE, don't output labels with GDS-II */
-bool CalmaDoLower = TRUE;	 /* If TRUE, allow lowercase labels. */
-bool CalmaFlattenArrays = FALSE; /* If TRUE, output arrays as individual uses */
-bool CalmaAddendum = FALSE;	 /* If TRUE, do not output readonly cell defs */
-bool CalmaNoDateStamp = FALSE;	 /* If TRUE, output zero for creation date stamp */
+bool CalmaDoLibrary = FALSE;	  /* If TRUE, do not output the top level */
+bool CalmaDoLabels = TRUE;	  /* If FALSE, don't output labels with GDS-II */
+bool CalmaDoLower = TRUE;	  /* If TRUE, allow lowercase labels. */
+bool CalmaFlattenArrays = FALSE;  /* If TRUE, output arrays as individual uses */
+bool CalmaAddendum = FALSE;	  /* If TRUE, do not output readonly cell defs */
+bool CalmaNoDateStamp = FALSE;	  /* If TRUE, output zero for creation date stamp */
+bool CalmaAllowUndefined = FALSE; /* If TRUE, allow calls to undefined cells */
 
     /* Experimental stuff---not thoroughly tested (as of Sept. 2007)! */
 bool CalmaContactArrays = FALSE; /* If TRUE, output contacts as subcell arrays */
@@ -305,7 +306,12 @@ CalmaWrite(rootDef, f)
      */
 
     dummy.cu_def = rootDef;
-    DBCellReadArea(&dummy, &rootDef->cd_bbox);
+    if (DBCellReadArea(&dummy, &rootDef->cd_bbox, !CalmaAllowUndefined))
+    {
+	TxError("Failure to read entire subtree of the cell.\n");
+	return FALSE;
+    }
+
     DBFixMismatch();
 
     /*
@@ -811,7 +817,7 @@ calmaProcessDef(def, outf, do_library)
      * not already been output.  Numbers are assigned to the subcells
      * as they are output.
      */
-    (void) DBCellEnum(def, calmaProcessUse, (ClientData) outf);
+    if (DBCellEnum(def, calmaProcessUse, (ClientData) outf) != 0) return 1;
 
     if (isReadOnly && hasContent)
     {
@@ -832,13 +838,20 @@ calmaProcessDef(def, outf, do_library)
 
 	    DBPropGet((def->cd_parents->cu_parent == NULL) ? def :
 			def->cd_parents->cu_parent, "GDS_FILE", &isReadOnly);
-	    if (!isReadOnly || isAbstract)
-		TxError("Calma output error:  Can't find GDS file \"%s\" "
-				"for vendor cell \"%s\".  Using magic's "
-				"internal definition\n", filename,
-				def->cd_name);
 	    if (isReadOnly)
+	    {
 		def->cd_flags |= CDVENDORGDS;
+		return 0;	/* Ignore without raising an error */
+	    }
+
+	    TxError("Calma output error:  Can't find GDS file \"%s\" "
+				"for vendor cell \"%s\".  It will not be output.\n",
+				filename, def->cd_name);
+
+	    if (CalmaAllowUndefined)
+		return 0;
+	    else
+		return 1;
 	}
 	else if (isAbstract || (!hasGDSEnd))
 	{
@@ -930,7 +943,7 @@ calmaProcessDef(def, outf, do_library)
 	if (!do_library)
 	    calmaOutFunc(def, outf, &TiPlaneRect);
 
-    return (0);
+    return 0;
 }
 
 
