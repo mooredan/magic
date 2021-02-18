@@ -67,7 +67,6 @@ typedef struct drccookie
 #define		DRC_FORWARD		0x000
 #define		DRC_REVERSE		0x001
 #define		DRC_BOTHCORNERS		0x002
-#define		DRC_MAXWIDTH_BOTH       0x002    // Note: Shared with DRC_BOTHCORNERS
 #define		DRC_TRIGGER		0x004
 #define		DRC_BENDS		0x008
 #define		DRC_OUTSIDE		0x010
